@@ -5,6 +5,8 @@ using WindowsGSM.Functions;
 using WindowsGSM.GameServer.Query;
 using WindowsGSM.GameServer.Engine;
 using System.IO;
+using System.Linq;
+using System.Net;
 
 namespace WindowsGSM.Plugins
 {
@@ -16,7 +18,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.DarkAndLight", // WindowsGSM.XXXX
             author = "1stian",
             description = "WindowsGSM plugin that adds support for Dark & Light dedicated servers.",
-            version = "1.0",
+            version = "1.1",
             url = "https://github.com/1stian/WindowsGSM.DarkAndLight", // Github repository link (Best practice)
             color = "#c0883e" // Color Hex
         };
@@ -50,7 +52,20 @@ namespace WindowsGSM.Plugins
         // - Create a default cfg for the game server after installation
         public async void CreateServerCFG()
         {
-            
+            string configPath = Functions.ServerPath.GetServersServerFiles(_serverData.ServerID, @"DNL\Saved\Config\WindowsServer\GameUserSettings.ini");
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+
+            string name = String.Concat(FullName.Where(c => !Char.IsWhiteSpace(c)));
+
+            //Download Game.ini
+            if (await DownloadGameServerConfig(configPath, configPath))
+            {
+                string configText = File.ReadAllText(configPath);
+                configText = configText.Replace("{{session_name}}", _serverData.ServerName);
+                configText = configText.Replace("{{rcon_port}}", _serverData.ServerQueryPort);
+                configText = configText.Replace("{{max_players}}", _serverData.ServerMaxPlayer);
+                File.WriteAllText(configPath, configText);
+            }
         }
 
         // - Start server function, return its Process to WindowsGSM
@@ -72,11 +87,8 @@ namespace WindowsGSM.Plugins
 
             // Prepare start parameter
             string param = string.IsNullOrWhiteSpace(_serverData.ServerMap) ? string.Empty : $"{_serverData.ServerMap}?listen";
-            param += string.IsNullOrWhiteSpace(_serverData.ServerName) ? string.Empty : $"?SessionName={_serverData.ServerName}";
             param += string.IsNullOrWhiteSpace(_serverData.ServerPort) ? string.Empty : $"?MultiHome={_serverData.ServerIP}";
             param += string.IsNullOrWhiteSpace(_serverData.ServerPort) ? string.Empty : $"?Port={_serverData.ServerPort}";
-            param += string.IsNullOrWhiteSpace(_serverData.ServerQueryPort) ? string.Empty : $"?QueryPort={_serverData.ServerQueryPort}";
-            param += string.IsNullOrWhiteSpace(_serverData.ServerMaxPlayer) ? string.Empty : $"?MaxPlayers={_serverData.ServerMaxPlayer}";
             param += $"?{_serverData.ServerParam} -server -log";
 
             // Prepare Process
@@ -136,5 +148,30 @@ namespace WindowsGSM.Plugins
 
         // - Stop server function
         public async Task Stop(Process p) => await Task.Run(() => { p.Kill(); });
+
+        // Get ini files
+        public static async Task<bool> DownloadGameServerConfig(string fileSource, string filePath)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+
+            try
+            {
+                using (WebClient webClient = new WebClient())
+                {
+                    await webClient.DownloadFileTaskAsync($"https://raw.githubusercontent.com/1stian/WindowsGSM-Configs/master/DarkAndLight/GameUserSettings.ini", filePath);
+                }
+            }
+            catch (Exception e)
+            {
+                System.Diagnostics.Debug.WriteLine($"Github.DownloadGameServerConfig {e}");
+            }
+
+            return File.Exists(filePath);
+        }
     }
 }
